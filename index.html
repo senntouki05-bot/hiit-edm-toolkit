@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HIIT EDM Prompt Factory for Suno</title>
+<style>
+  :root{--bg:#0d0f14;--panel:#161a23;--line:#262c3a;--fg:#e7eaf0;--mute:#8b93a7;--acc:#ff4d6d;--acc2:#4de0ff;--ok:#5ee29a;--warn:#ffb84d}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+  header{padding:18px 24px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{margin:0;font-size:20px;letter-spacing:.02em}
+  header small{color:var(--mute)}
+  main{display:grid;grid-template-columns:360px 1fr;gap:0;min-height:calc(100vh - 62px)}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+  aside{padding:18px;border-right:1px solid var(--line);background:var(--panel)}
+  section.out{padding:18px 24px;overflow:auto}
+  fieldset{border:1px solid var(--line);border-radius:8px;margin:0 0 14px;padding:10px 12px}
+  legend{color:var(--acc2);font-size:12px;padding:0 6px}
+  label{display:block;font-size:12px;color:var(--mute);margin:6px 0 2px}
+  select,input[type=number],input[type=text]{width:100%;background:#0b0d12;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:13px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--fg);margin:4px 0}
+  .chk input{width:auto}
+  button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:9px 14px;font-size:14px;font-weight:600;cursor:pointer}
+  button.sec{background:#262c3a;color:var(--fg);font-weight:500;font-size:12px;padding:6px 10px}
+  button:hover{filter:brightness(1.1)}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .card{border:1px solid var(--line);border-radius:10px;background:var(--panel);margin-bottom:16px;padding:14px 16px}
+  .card h3{margin:0 0 6px;font-size:15px}
+  .card .meta{color:var(--mute);font-size:12px;margin-bottom:8px}
+  .blk{position:relative;margin:8px 0}
+  .blk .lbl{font-size:11px;color:var(--acc2);letter-spacing:.06em;text-transform:uppercase;margin-bottom:3px;display:flex;justify-content:space-between;align-items:center}
+  pre{margin:0;background:#0b0d12;border:1px solid var(--line);border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-word;font:12.5px/1.55 ui-monospace,Menlo,monospace;color:#d6dbe6}
+  table{border-collapse:collapse;font-size:12px;width:100%}
+  th,td{border-bottom:1px solid var(--line);padding:3px 6px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--mute);font-weight:500}
+  .warn{color:var(--warn)} .ok{color:var(--ok)}
+  details summary{cursor:pointer;color:var(--mute);font-size:12px}
+  .toast{position:fixed;bottom:18px;right:18px;background:#1f2633;border:1px solid var(--line);padding:8px 14px;border-radius:8px;opacity:0;transition:.2s}
+  .toast.show{opacity:1}
+  .note{font-size:12px;color:var(--mute);margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>HIIT EDM Prompt Factory</h1>
+  <small>Suno用プロンプトを大量生成 ─ 運動/休憩の秒数を BPM×小節に換算して構成タグへ落とす</small>
+</header>
+<main>
+<aside>
+  <fieldset>
+    <legend>1. HIITプロトコル</legend>
+    <label>プリセット</label>
+    <select id="preset"></select>
+    <div class="row3">
+      <div><label>ウォームアップ(s)</label><input type="number" id="warm" min="0" step="5"></div>
+      <div><label>クールダウン(s)</label><input type="number" id="cool" min="0" step="5"></div>
+      <div><label>ラウンド数</label><input type="number" id="rounds" min="1" max="30"></div>
+    </div>
+    <label>1ラウンドの区間（秒, 種別）— 上から順に繰り返す</label>
+    <div id="segs"></div>
+    <button class="sec" id="addSeg">＋ 区間を追加</button>
+    <div class="note" id="protoSummary"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>2. 音楽</legend>
+    <label>サブジャンル（複数選択でランダム）</label>
+    <select id="genres" multiple size="8"></select>
+    <div class="row">
+      <div><label>BPM 下限（空=ジャンル既定）</label><input type="number" id="bpmMin" placeholder="auto"></div>
+      <div><label>BPM 上限</label><input type="number" id="bpmMax" placeholder="auto"></div>
+    </div>
+    <label>ボーカル</label>
+    <select id="vocal">
+      <option value="inst">インストのみ（[Instrumental]）</option>
+      <option value="coach">コーチ声あり（GO! / 3-2-1 / Breathe）</option>
+      <option value="mix">半々でランダム</option>
+    </select>
+    <label>Styleフィールド上限（文字）</label>
+    <select id="styleCap">
+      <option value="1000">1000（v4.5系）</option>
+      <option value="200">200（v3.5/v4系）</option>
+    </select>
+  </fieldset>
+
+  <fieldset>
+    <legend>3. 生成</legend>
+    <div class="row">
+      <div><label>本数</label><input type="number" id="count" value="20" min="1" max="500"></div>
+      <div><label>シード（再現用）</label><input type="number" id="seed" placeholder="空=毎回ランダム"></div>
+    </div>
+    <div class="chk"><input type="checkbox" id="barsInTag" checked><span>タグに小節数と秒を書く（例 [Drop – 5 bars / 10s]）</span></div>
+    <div class="chk"><input type="checkbox" id="compact"><span>同一ラウンドを圧縮表記（長い曲向け・Sunoの解釈は不確実）</span></div>
+    <div style="margin-top:10px"><button id="gen">プロンプトを生成</button></div>
+  </fieldset>
+  <div class="note">
+    ⚠️ Sunoは秒数を厳密に守らない。<b>BPM×小節</b>で寄せ、実際の音源を聴いてタイマーと合わせる前提。
+    ⚠️ 1曲の上限は v4系≈4分・v4.5系≈8分（公開情報・未実測）。超える場合は4分ブロックで作って Extend。
+  </div>
+</aside>
+
+<section class="out">
+  <div class="toolbar">
+    <button class="sec" id="copyAll">全部コピー（TXT）</button>
+    <button class="sec" id="dlTxt">TXT保存</button>
+    <button class="sec" id="dlCsv">CSV保存</button>
+    <button class="sec" id="dlJson">JSON保存</button>
+    <span id="stat" class="note"></span>
+  </div>
+  <div id="cards"></div>
+</section>
+</main>
+<div class="toast" id="toast">コピーしました</div>
+
+<script>
+/* ---------- データ ---------- */
+const PRESETS = {
+  tabata:   {name:'Tabata（20/10 ×8 = 4分）', warm:30, cool:30, rounds:8, segs:[[20,'work'],[10,'rest']]},
+  t102030:  {name:'10-20-30（30低→20中→10全力 ×5 = 5分）', warm:30, cool:30, rounds:5, segs:[[30,'low'],[20,'mid'],[10,'work']]},
+  r3030:    {name:'30/30 ×8', warm:30, cool:30, rounds:8, segs:[[30,'work'],[30,'rest']]},
+  r4020:    {name:'40/20 ×8', warm:30, cool:30, rounds:8, segs:[[40,'work'],[20,'rest']]},
+  r4515:    {name:'45/15 ×8', warm:30, cool:30, rounds:8, segs:[[45,'work'],[15,'rest']]},
+  sevenmin: {name:'7-Minute Workout（30/10 ×12）', warm:0, cool:0, rounds:12, segs:[[30,'work'],[10,'rest']]},
+  emom:     {name:'EMOM（40動作+20休 ×10）', warm:30, cool:30, rounds:10, segs:[[40,'work'],[20,'rest']]},
+  beginner: {name:'初心者 1:2（20/40 ×8）', warm:60, cool:60, rounds:8, segs:[[20,'work'],[40,'rest']]},
+  sit:      {name:'SIT（30全力/240回復 ×4）※長尺', warm:120, cool:120, rounds:4, segs:[[30,'work'],[240,'rest']]},
+  nor44:    {name:'Norwegian 4×4（240/180 ×4）※長尺', warm:300, cool:180, rounds:4, segs:[[240,'mid'],[180,'rest']]},
+  custom:   {name:'カスタム', warm:30, cool:30, rounds:8, segs:[[30,'work'],[10,'rest']]},
+};
+const SEGTYPES = {
+  work:{ja:'全力',   tag:'Drop',      sec:'full-energy drop, all-out intensity, every element in'},
+  mid: {ja:'中強度', tag:'Verse',     sec:'driving groove, kick in, medium energy, lead held back'},
+  low: {ja:'低強度', tag:'Breakdown', sec:'low energy, no kick, sparse pads, easy groove'},
+  rest:{ja:'休憩',   tag:'Breakdown', sec:'kick drops out, airy pads, breathing room, riser building in the last bar'},
+};
+const GENRES = [
+  {n:'Big Room House', bpm:[126,130]},
+  {n:'Progressive House', bpm:[126,128]},
+  {n:'Future Rave', bpm:[126,130]},
+  {n:'Electro House', bpm:[126,130]},
+  {n:'Bass House', bpm:[124,128]},
+  {n:'Tech House', bpm:[124,128]},
+  {n:'Uplifting Trance', bpm:[136,140]},
+  {n:'Psytrance', bpm:[138,145]},
+  {n:'Melodic Dubstep', bpm:[140,150]},
+  {n:'Trap EDM', bpm:[140,150]},
+  {n:'Drift Phonk', bpm:[130,150]},
+  {n:'Hard Techno', bpm:[145,155]},
+  {n:'Hardstyle', bpm:[150,155]},
+  {n:'UK Hardcore', bpm:[165,175]},
+  {n:'Drum and Bass', bpm:[170,176]},
+];
+const LEADS=['supersaw','pluck','acid 303','brass stab','vocal-chop','distorted screech','piano stab riff','arpeggiated synth','hoover','detuned square','sawtooth anthem','rave stab'];
+const BASSES=['reese','deep sub','wobble','pumping sidechained','growl','offbeat','rolling','808'];
+const DRUMS=['punchy four-on-the-floor','distorted kick','tight snare rolls','ride-heavy','crisp claps','rolling breakbeat','gated hi-hats','marching toms'];
+const MOODS=['euphoric','aggressive','dark','triumphant','relentless','uplifting','menacing','heroic','neon','cinematic','festival','gritty'];
+const FX=['white-noise risers','air horns','reverse cymbals','siren lead','crowd chant','laser zaps','snare build-ups','filter sweeps','impact hits','vocal shouts'];
+const KEYS=['A minor','F minor','G minor','E minor','D minor','C minor','B minor','F# minor','C# minor','G major','D major','A major'];
+const TITLES_A=['Afterburn','Max Effort','Redline','Overdrive','Ignite','Sprint Mode','No Quit','Full Send','Heart Rate','Pulse','Threshold','Beast Mode','Zero Rest','Push','Final Round','Lactic','Turbo','Blackout','Lift Off','Warpath'];
+const TITLES_B=['Protocol','Circuit','Interval','Engine','Session','Rush','Charge','Fire','Surge','Drive','Grind','Power','Blitz','Strike','Voltage'];
+
+const COACH = {
+  work:['GO! GO! GO!','PUSH! PUSH! PUSH!','ALL OUT! ALL OUT!','HARDER! FASTER!','DON\'T STOP! DON\'T STOP!','MAX EFFORT! GO!'],
+  mid:['Keep it moving','Steady, steady','Hold the pace','Stay with me'],
+  low:['Easy now, easy','Recover, breathe','Nice and light'],
+  rest:['Breathe... breathe...','Rest. Shake it out.','Ten seconds. Breathe.','Recover... get ready...'],
+  countdown:'(3... 2... 1...)',
+};
+
+/* ---------- 乱数 ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+let rnd=Math.random;
+const pick=a=>a[Math.floor(rnd()*a.length)];
+const pickN=(a,n)=>{const c=[...a],o=[];while(o.length<n&&c.length)o.push(c.splice(Math.floor(rnd()*c.length),1)[0]);return o};
+const rint=(lo,hi)=>lo+Math.floor(rnd()*(hi-lo+1));
+
+/* ---------- UI: プロトコル ---------- */
+const $=id=>document.getElementById(id);
+const presetSel=$('preset');
+for(const [k,v] of Object.entries(PRESETS)){const o=document.createElement('option');o.value=k;o.textContent=v.name;presetSel.appendChild(o)}
+function renderSegs(segs){
+  $('segs').innerHTML='';
+  segs.forEach((s,i)=>{
+    const d=document.createElement('div');d.className='row3';d.style.marginBottom='4px';
+    d.innerHTML=`<input type="number" class="segSec" value="${s[0]}" min="1">
+      <select class="segType">${Object.entries(SEGTYPES).map(([k,v])=>`<option value="${k}" ${k===s[1]?'selected':''}>${v.ja}</option>`).join('')}</select>
+      <button class="sec delSeg">削除</button>`;
+    d.querySelector('.delSeg').onclick=()=>{d.remove();summarize()};
+    d.querySelectorAll('input,select').forEach(e=>e.oninput=summarize);
+    $('segs').appendChild(d);
+  });
+}
+function loadPreset(k){const p=PRESETS[k];$('warm').value=p.warm;$('cool').value=p.cool;$('rounds').value=p.rounds;renderSegs(p.segs);summarize()}
+presetSel.onchange=()=>loadPreset(presetSel.value);
+$('addSeg').onclick=()=>{const cur=readSegs();cur.push([10,'work']);renderSegs(cur);summarize()};
+['warm','cool','rounds'].forEach(id=>$(id).oninput=summarize);
+function readSegs(){return [...document.querySelectorAll('#segs .row3')].map(d=>[+d.querySelector('.segSec').value||0,d.querySelector('.segType').value])}
+function protocol(){return {warm:+$('warm').value||0,cool:+$('cool').value||0,rounds:+$('rounds').value||1,segs:readSegs()}}
+function totalSec(p){return p.warm+p.cool+p.rounds*p.segs.reduce((a,s)=>a+s[0],0)}
+function summarize(){
+  const p=protocol(),t=totalSec(p);
+  const m=Math.floor(t/60),s=t%60;
+  $('protoSummary').innerHTML=`合計 <b>${m}分${s}秒</b>（${t}s）`+(t>240?` <span class="warn">— 4分超。v4系は1曲に収まらない可能性。4分ブロック＋Extend推奨</span>`:` <span class="ok">— 1曲に収まる</span>`);
+}
+loadPreset('tabata');
+
+/* ---------- UI: ジャンル ---------- */
+GENRES.forEach((g,i)=>{const o=document.createElement('option');o.value=i;o.textContent=`${g.n} (${g.bpm[0]}–${g.bpm[1]})`;if(i<4)o.selected=true;$('genres').appendChild(o)});
+
+/* ---------- 生成ロジック ---------- */
+function buildTimeline(p,bpm){
+  // 秒→小節（4/4）。最低1小節。実秒と累積ズレも返す
+  const secPerBar=240/bpm;
+  const rows=[];let target=0,actual=0;
+  const push=(label,type,sec,round)=>{
+    const bars=Math.max(1,Math.round(sec/secPerBar));
+    target+=sec;actual+=bars*secPerBar;
+    rows.push({label,type,sec,bars,actualSec:bars*secPerBar,round,cumTarget:target,cumActual:actual});
+  };
+  if(p.warm>0)push('Intro','intro',p.warm,0);
+  for(let r=1;r<=p.rounds;r++)p.segs.forEach(([sec,type],i)=>push(`R${r} ${SEGTYPES[type].ja}`,type,sec,r));
+  if(p.cool>0)push('Outro','outro',p.cool,0);
+  return rows;
+}
+const TAGDESC={
+  intro:'Intro', outro:'Outro',
+};
+function tagFor(row,opts){
+  const base=row.type==='intro'?'Intro':row.type==='outro'?'Outro':SEGTYPES[row.type].tag;
+  const desc=row.type==='intro'?'filtered, no kick, rising pads, low energy':row.type==='outro'?'filter closes, kick fades out':SEGTYPES[row.type].sec;
+  const t=opts.barsInTag?`${base} – ${row.bars} bars / ${row.sec}s`:base;
+  return `[${t}: ${desc}]`;
+}
+function coachLines(type,sec){
+  if(type==='intro')return '(get ready)';
+  if(type==='outro')return '(done. well done.)';
+  const lines=[];
+  const n=Math.max(1,Math.round(sec/10));
+  for(let i=0;i<n;i++)lines.push(pick(COACH[type]));
+  if(type==='rest'||type==='low')lines[lines.length-1]=COACH.countdown;
+  return lines.join('\n');
+}
+function buildLyrics(rows,opts,withCoach){
+  const parts=[];
+  if(!withCoach)parts.push('[Instrumental]');
+  if(opts.compact){
+    // イントロ / 1ラウンド分 / "repeat" / アウトロ
+    const intro=rows.filter(r=>r.type==='intro'),outro=rows.filter(r=>r.type==='outro');
+    const r1=rows.filter(r=>r.round===1);const rounds=Math.max(...rows.map(r=>r.round));
+    intro.forEach(r=>parts.push(tagFor(r,opts)+(withCoach?'\n'+coachLines(r.type,r.sec):'')));
+    parts.push(`[Repeat the following block ${rounds} times, identical each time]`);
+    r1.forEach(r=>parts.push(tagFor(r,opts)+(withCoach?'\n'+coachLines(r.type,r.sec):'')));
+    outro.forEach(r=>parts.push(tagFor(r,opts)+(withCoach?'\n'+coachLines(r.type,r.sec):'')));
+  }else{
+    rows.forEach(r=>parts.push(tagFor(r,opts)+(withCoach?'\n'+coachLines(r.type,r.sec):'')));
+  }
+  return parts.join('\n\n');
+}
+function buildStyle(g,bpm,key,withCoach,cap,seed){
+  const mood=pickN(MOODS,2).join(' '),lead=pick(LEADS),bass=pick(BASSES),drum=pick(DRUMS),fx=pickN(FX,2).join(', ');
+  const voc=withCoach?'shouted male coach vocals, hype chants':'instrumental, no vocals';
+  const full=[`${g.n}`,`${bpm} BPM`,key,mood,`${lead} lead`,`${bass} bass`,`${drum} drums`,fx,'HIIT workout energy, strict tempo, hard-hitting drops, clean breakdowns',voc,'loud clean master'].join(', ');
+  const short=[`${g.n}`,`${bpm} BPM`,mood,`${lead} lead`,`${drum} drums`,'HIIT workout',withCoach?'coach shouts':'instrumental'].join(', ');
+  let s=cap>=1000?full:short;
+  if(s.length>cap)s=s.slice(0,cap-1).replace(/,[^,]*$/,'');
+  return {style:s,mood,lead,bass,drum,fx};
+}
+function generate(){
+  const seedIn=$('seed').value;
+  const seed=seedIn===''?Math.floor(Math.random()*1e9):+seedIn;
+  rnd=mulberry32(seed);
+  const p=protocol();
+  const gsel=[...$('genres').selectedOptions].map(o=>GENRES[+o.value]);
+  if(!gsel.length){alert('サブジャンルを1つ以上選んでください');return}
+  const n=+$('count').value||1,cap=+$('styleCap').value;
+  const opts={barsInTag:$('barsInTag').checked,compact:$('compact').checked};
+  const vmode=$('vocal').value;
+  const bpmMin=$('bpmMin').value,bpmMax=$('bpmMax').value;
+  const seen=new Set(),out=[];
+  let guard=0;
+  while(out.length<n&&guard++<n*20){
+    const g=pick(gsel);
+    const lo=bpmMin!==''?+bpmMin:g.bpm[0],hi=bpmMax!==''?+bpmMax:g.bpm[1];
+    const bpm=rint(Math.min(lo,hi),Math.max(lo,hi));
+    const key=pick(KEYS);
+    const withCoach=vmode==='coach'?true:vmode==='inst'?false:rnd()<0.5;
+    const st=buildStyle(g,bpm,key,withCoach,cap);
+    const sig=st.style;if(seen.has(sig))continue;seen.add(sig);
+    const rows=buildTimeline(p,bpm);
+    const lyrics=buildLyrics(rows,opts,withCoach);
+    const title=`${pick(TITLES_A)} ${pick(TITLES_B)}`;
+    out.push({id:out.length+1,title,genre:g.n,bpm,key,coach:withCoach,style:st.style,lyrics,rows,seed});
+  }
+  render(out,p,seed);
+  window.__out=out;
+}
+
+/* ---------- 描画・出力 ---------- */
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function render(out,p,seed){
+  $('stat').textContent=`${out.length}本 / seed=${seed} / 合計${totalSec(p)}s`;
+  $('cards').innerHTML=out.map(o=>{
+    const drift=o.rows.length?(o.rows[o.rows.length-1].cumActual-o.rows[o.rows.length-1].cumTarget):0;
+    const tbl=`<table><tr><th>区間</th><th>目標s</th><th>小節</th><th>実s</th><th>累積ズレs</th></tr>`+
+      o.rows.map(r=>`<tr><td>${r.label}</td><td>${r.sec}</td><td>${r.bars}</td><td>${r.actualSec.toFixed(1)}</td><td class="${Math.abs(r.cumActual-r.cumTarget)>3?'warn':''}">${(r.cumActual-r.cumTarget).toFixed(1)}</td></tr>`).join('')+`</table>`;
+    return `<div class="card">
+      <h3>#${o.id} ${esc(o.title)}</h3>
+      <div class="meta">${o.genre} · ${o.bpm} BPM · ${o.key} · ${o.coach?'コーチ声あり':'インスト'} · 最終ズレ <span class="${Math.abs(drift)>3?'warn':'ok'}">${drift>=0?'+':''}${drift.toFixed(1)}s</span></div>
+      <div class="blk"><div class="lbl"><span>Title</span><button class="sec" data-copy="${o.id}:title">コピー</button></div><pre>${esc(o.title)}</pre></div>
+      <div class="blk"><div class="lbl"><span>Style of Music（${o.style.length}字）</span><button class="sec" data-copy="${o.id}:style">コピー</button></div><pre>${esc(o.style)}</pre></div>
+      <div class="blk"><div class="lbl"><span>Lyrics / 構成タグ（${o.lyrics.length}字）</span><button class="sec" data-copy="${o.id}:lyrics">コピー</button></div><pre>${esc(o.lyrics)}</pre></div>
+      <details><summary>タイムライン換算表（BPM ${o.bpm}・1小節=${(240/o.bpm).toFixed(2)}s）</summary>${tbl}</details>
+    </div>`;
+  }).join('');
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-copy]');if(!b)return;
+  const [id,f]=b.dataset.copy.split(':');const o=window.__out.find(x=>x.id==id);
+  copy(o[f]);
+});
+function copy(t){navigator.clipboard.writeText(t).then(()=>{const el=$('toast');el.classList.add('show');setTimeout(()=>el.classList.remove('show'),1200)})}
+function asTxt(){return (window.__out||[]).map(o=>`===== #${o.id} ${o.title} (${o.genre} ${o.bpm}BPM ${o.key}) =====\n[STYLE]\n${o.style}\n\n[LYRICS]\n${o.lyrics}\n`).join('\n')}
+function dl(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click()}
+const stamp=()=>new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+$('copyAll').onclick=()=>copy(asTxt());
+$('dlTxt').onclick=()=>dl(`hiit-edm-prompts-${stamp()}.txt`,asTxt(),'text/plain');
+$('dlJson').onclick=()=>dl(`hiit-edm-prompts-${stamp()}.json`,JSON.stringify((window.__out||[]).map(({rows,...o})=>o),null,2),'application/json');
+$('dlCsv').onclick=()=>{
+  const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
+  const head='id,title,genre,bpm,key,coach,style,lyrics';
+  const body=(window.__out||[]).map(o=>[o.id,o.title,o.genre,o.bpm,o.key,o.coach,o.style,o.lyrics].map(q).join(','));
+  dl(`hiit-edm-prompts-${stamp()}.csv`,'﻿'+[head,...body].join('\n'),'text/csv');
+};
+$('gen').onclick=generate;
+generate();
+</script>
+</body>
+</html>
